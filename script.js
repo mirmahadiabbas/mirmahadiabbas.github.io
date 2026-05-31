@@ -1,98 +1,158 @@
-/* =========================================================================
-   Mir Mahadi Abbas, portfolio.
-   Three small jobs: reveal-on-scroll, top bar border on scroll,
-   and active nav highlighting based on which section is in view.
-   No dependencies. Plain ES, runs after DOMContentLoaded via `defer`.
-   ========================================================================= */
-
-(() => {
+/* ============================================================
+   Mir Mahadi Abbas — portfolio scripts
+   ============================================================ */
+(function () {
   'use strict';
 
-  /* -----------------------------
-     1. Reveal on scroll.
-     Tag every section and entry with .reveal, then IntersectionObserver
-     adds .is-visible once. Skipped entirely if the user prefers reduced motion.
-     ----------------------------- */
-  const prefersReducedMotion = window.matchMedia(
-    '(prefers-reduced-motion: reduce)'
-  ).matches;
+  /* ---------- Footer year ---------- */
+  var yearEl = document.getElementById('year');
+  if (yearEl) yearEl.textContent = new Date().getFullYear();
 
-  const revealTargets = document.querySelectorAll(
-    '.intro, .section, .entry, .achievement'
-  );
-
-  if (prefersReducedMotion || !('IntersectionObserver' in window)) {
-    // Nothing to animate. Make sure everything is visible.
-    revealTargets.forEach((el) => el.classList.add('is-visible'));
-  } else {
-    revealTargets.forEach((el) => el.classList.add('reveal'));
-
-    const revealObserver = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('is-visible');
-            revealObserver.unobserve(entry.target);
-          }
-        });
-      },
-      {
-        rootMargin: '0px 0px -8% 0px',
-        threshold: 0.08,
-      }
-    );
-
-    revealTargets.forEach((el) => revealObserver.observe(el));
+  /* ---------- Nav: shadow on scroll ---------- */
+  var nav = document.getElementById('nav');
+  function onScroll() {
+    if (window.scrollY > 10) nav.classList.add('scrolled');
+    else nav.classList.remove('scrolled');
   }
-
-  /* -----------------------------
-     2. Top bar border on scroll.
-     The border only appears once the visitor has scrolled past the intro.
-     ----------------------------- */
-  const topbar = document.getElementById('topbar');
-  const onScroll = () => {
-    if (window.scrollY > 24) {
-      topbar.classList.add('is-scrolled');
-    } else {
-      topbar.classList.remove('is-scrolled');
-    }
-  };
   window.addEventListener('scroll', onScroll, { passive: true });
-  onScroll(); // run once on load in case the page is reloaded mid-scroll
+  onScroll();
 
-  /* -----------------------------
-     3. Active nav highlighting.
-     Watches each section, marks the corresponding nav link as active.
-     Uses a viewport-centred root margin so the active section reflects
-     what the visitor is actually reading, not what just touched the top edge.
-     ----------------------------- */
-  const navLinks = document.querySelectorAll('.topbar__nav a');
-  const sections = ['work', 'education', 'achievements', 'contact']
-    .map((id) => document.getElementById(id))
-    .filter(Boolean);
-
-  if ('IntersectionObserver' in window && sections.length) {
-    const setActive = (id) => {
-      navLinks.forEach((link) => {
-        link.classList.toggle('is-active', link.dataset.nav === id);
+  /* ---------- Mobile nav toggle ---------- */
+  var toggle = document.getElementById('navToggle');
+  var links = document.querySelector('.nav-links');
+  if (toggle && links) {
+    toggle.addEventListener('click', function () {
+      var open = links.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    });
+    links.querySelectorAll('a').forEach(function (a) {
+      a.addEventListener('click', function () {
+        links.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
       });
-    };
-
-    const navObserver = new IntersectionObserver(
-      (entries) => {
-        // Pick the entry closest to the centre of the viewport.
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-        if (visible[0]) setActive(visible[0].target.id);
-      },
-      {
-        // Active when section sits in the middle band of the viewport.
-        rootMargin: '-40% 0px -45% 0px',
-        threshold: 0,
-      }
-    );
-
-    sections.forEach((s) => navObserver.observe(s));
+    });
   }
+
+  /* ---------- Scroll reveal ---------- */
+  var reveals = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    reveals.forEach(function (el, i) {
+      // small stagger for items in the same row
+      el.style.transitionDelay = (Math.min(i % 4, 3) * 0.06) + 's';
+      io.observe(el);
+    });
+  } else {
+    reveals.forEach(function (el) { el.classList.add('in'); });
+  }
+
+  // Safety net: reveal anything near or above the viewport. Runs after load
+  // and again whenever scrolling settles, so fast scrollers never hit a blank.
+  function revealNearby() {
+    reveals.forEach(function (el) {
+      if (el.classList.contains('in')) return;
+      var r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight + 150) el.classList.add('in');
+    });
+  }
+  window.addEventListener('load', function () { setTimeout(revealNearby, 500); });
+  var sttimer;
+  window.addEventListener('scroll', function () {
+    clearTimeout(sttimer);
+    sttimer = setTimeout(revealNearby, 120);
+  }, { passive: true });
+
+  /* ---------- Lightbox ---------- */
+  var lb = document.getElementById('lightbox');
+  var lbImg = document.getElementById('lbImage');
+  var lbCap = document.getElementById('lbCaption');
+  var lbClose = document.getElementById('lbClose');
+  var lbPrev = document.getElementById('lbPrev');
+  var lbNext = document.getElementById('lbNext');
+  var lbDots = document.getElementById('lbDots');
+
+  var gallery = [];
+  var current = 0;
+  var caption = '';
+  var lastFocused = null;
+
+  function renderDots() {
+    lbDots.innerHTML = '';
+    if (gallery.length < 2) return;
+    gallery.forEach(function (_, i) {
+      var d = document.createElement('span');
+      if (i === current) d.classList.add('active');
+      d.addEventListener('click', function () { show(i); });
+      lbDots.appendChild(d);
+    });
+  }
+
+  function show(i) {
+    current = (i + gallery.length) % gallery.length;
+    lbImg.src = gallery[current];
+    lbImg.alt = caption + (gallery.length > 1 ? ' — image ' + (current + 1) + ' of ' + gallery.length : '');
+    lbCap.textContent = caption;
+    var multi = gallery.length > 1;
+    lbPrev.classList.toggle('hidden', !multi);
+    lbNext.classList.toggle('hidden', !multi);
+    renderDots();
+  }
+
+  function openLightbox(images, title, trigger) {
+    gallery = images.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    caption = title || '';
+    if (!gallery.length) return;
+    lastFocused = trigger || null;
+    show(0);
+    lb.classList.add('open');
+    lb.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    lbClose.focus();
+  }
+
+  function closeLightbox() {
+    lb.classList.remove('open');
+    lb.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    lbImg.src = '';
+    if (lastFocused && typeof lastFocused.focus === 'function') lastFocused.focus();
+  }
+
+  // Wire up all triggers (competition cards + certificate cards)
+  document.querySelectorAll('[data-images]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      openLightbox(el.getAttribute('data-images'), el.getAttribute('data-title'), el);
+    });
+  });
+
+  lbClose.addEventListener('click', closeLightbox);
+  lbPrev.addEventListener('click', function () { show(current - 1); });
+  lbNext.addEventListener('click', function () { show(current + 1); });
+  lb.addEventListener('click', function (e) { if (e.target === lb) closeLightbox(); });
+
+  document.addEventListener('keydown', function (e) {
+    if (!lb.classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowLeft' && gallery.length > 1) show(current - 1);
+    else if (e.key === 'ArrowRight' && gallery.length > 1) show(current + 1);
+  });
+
+  /* ---------- Light deterrent against casual image saving ----------
+     NOTE: this is not real protection. Anyone can screenshot or use
+     dev tools. It only blocks the most casual right-click / drag. */
+  document.addEventListener('contextmenu', function (e) {
+    if (e.target && e.target.tagName === 'IMG') e.preventDefault();
+  });
+  document.addEventListener('dragstart', function (e) {
+    if (e.target && e.target.tagName === 'IMG') e.preventDefault();
+  });
+
 })();
